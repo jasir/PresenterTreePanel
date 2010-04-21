@@ -29,7 +29,7 @@ class PresenterTreePanel extends Object implements IDebugPanel
 
 
 
-    	/**
+		/**
 	 * Renders HTML code for custom tab.
 	 * @return void
 	 */
@@ -46,10 +46,28 @@ class PresenterTreePanel extends Object implements IDebugPanel
 	 */
 	function getPanel()
 	{
+		//Debug::timer('presenter-tree');
+
+		$cache = Environment::getCache('debug/panels/PresenterTree');
+
+		if (isset($cache['tree'])) {
+			$tree = $cache['tree'];
+		} else {
+			Environment::enterCriticalSection('debug/panels/PresenterTree');
+			$generated = $this->generate();
+			$tree = $cache->save('tree', $generated['tree'], array('files' => $generated['depends']));
+			Environment::leaveCriticalSection('debug/panels/PresenterTree');
+		}
+
 		ob_start();
+
 		$template = new Template(dirname(__FILE__) . '/bar.presentertree.panel.phtml');
-		$template->tree = $this->generate();
+		$template->tree = $tree;
+
 		$template->render();
+
+		//Debug::fireLog('presenter-tree render time (ms): ' . round(1000 * Debug::timer('presenter-tree', TRUE), 2));
+
 		return $cache['output'] = ob_get_clean();
 	}
 
@@ -73,12 +91,14 @@ class PresenterTreePanel extends Object implements IDebugPanel
 	private function generate()
 	{
 		$links = array();
-		
+		$depends = array();
+
 		$iterator = new RegexIterator(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(APP_DIR)), '/Presenter\.(php|PHP)$/m', RecursiveRegexIterator::GET_MATCH);
 		foreach ($iterator as $path => $match) {
 			$fileinfo = pathinfo($path);
 			$reflection = new ReflectionClass($this->getClassNameFromPath($path));
 			if ($reflection->isInstantiable()) {
+				$depends[] = $path;
 				$modules = $this->getModulesFromName($reflection->name);
 				$link = '';
 				if ($modules !== FALSE) {
@@ -144,7 +164,10 @@ class PresenterTreePanel extends Object implements IDebugPanel
 				}
 			}
 		}
-		return $this->categorize($links);
+		return array(
+			'tree' => $this->categorize($links),
+			'depends' => $depends
+		);
 	}
 
 
@@ -254,7 +277,7 @@ class PresenterTreePanel extends Object implements IDebugPanel
 	}
 
 
-	
+
 	/**
 	 * @param string $className
 	 * @return array|string all modules given presenter file is under
